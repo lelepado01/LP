@@ -1,55 +1,49 @@
 -module(ring).
 -export([start/2, send_message/1, send_message/2, stop/0]).
 
-% come fare ring:
-%   fun() start() che crea i primo processo registrato
-%   il primo processo ha fun create, che crea Next process e poi mette in receive il processo attuale, che adesso sa chi è il processo successivo
-%   il successivo è creato con la stessa fun create(), che fa la stessa cosa
-%   l'ultimo processo ha un loop diverso che reindirizza al primo, per chiudere l'anello.
-%    
+start(N, L) -> 
+    register(term, self()),
+    register(start, spawn(fun() -> create_ring(N, L) end)).
 
+create_ring(N, [H|Tl]) -> 
+    Start = self(), 
+    ring_wait(H, 0, spawn(fun() -> create_ring(N, 1, Tl, Start) end)).
 
-start(N, Ls) ->
-    register(ring, spawn(fun() -> create(N, Ls, self()) end)), 
-    receive
-        {ready} -> ok
+create_ring(N, I, [H|_], Start) when N-1 == I -> ring_wait(H, I, Start);
+create_ring(N, I, [H|Tl], Start) -> ring_wait(H, I, spawn(fun() -> create_ring(N, I+1, Tl, Start) end)).
+
+ring_wait(F, Num, Next) ->
+    receive 
+        {mess, V} when Num == 0 -> 
+            term ! {res, V}, ring_wait(F, Num, Next);
+        {mess, V} -> 
+            Next ! {mess, F(V)}, ring_wait(F, Num, Next);
+        {new, V} -> 
+            Next ! {mess, F(V)}, ring_wait(F, Num, Next);
+        {mess, V, 1} when Num == 0 -> 
+            term ! {res, V}, ring_wait(F, Num, Next);
+        {mess, V, N} when Num == 0 -> 
+            Next ! {mess, F(V), N-1}, ring_wait(F, Num, Next);
+        {mess, V, N} ->
+            Next ! {mess, F(V), N}, ring_wait(F, Num, Next);
+        {new, V, N} -> 
+            Next ! {mess, F(V), N}, ring_wait(F, Num, Next);
+        {stop} -> 
+            io:format("Stopping: ~p\n", [Num]), Next ! {stop}
     end.
 
-stop() ->
-    ring ! {command, stop}.
-
-create(1, [H|_], From) ->
-    From ! {ready}, 
-    loop_last(ring, H);
-create(N, [H|Tl], From) -> 
-    Next = spawn_link(fun() -> create(N-1, Tl, From) end),
-    loop(Next, H).
-
-send_message(Msg) ->
-    ring ! {command, message, {Msg, 1}}.
-send_message(Msg, Times) ->
-    ring ! {command, message, {Msg, Times}}.
-
-loop(Next, F) ->
+send_message(I) -> 
+    start ! {new, I}, 
     receive
-        {command, stop} ->
-            Msg = {command, stop},
-            Next ! Msg, 
-            ok;
-        {command, message, {Msg, Times}} ->
-            Next ! {command, message, {F(Msg), Times}},
-            loop(Next, F)
+        {res, V} -> io:format("Result: ~p\n", [V])
+        after 1000 -> io:format("Timeout\n")
     end.
 
-loop_last(Next, F) ->
+send_message(I, N) -> 
+    start ! {new, I, N}, 
     receive
-        {command, stop} ->
-            exit(normal), 
-            unregister(ring);
-        {command, message, {Msg, 1}} ->
-            io:format("~p", [F(Msg)]),
-            loop(Next, F);
-        {command, message, {Msg, Times}} ->
-            Next ! {command, message, {F(Msg), Times-1}},
-            loop_last(Next, F)
+        {res, V} -> io:format("Result: ~p\n", [V])
+        after 1000 -> io:format("Timeout\n")
     end.
+
+stop() -> start ! {stop}.

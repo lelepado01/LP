@@ -1,32 +1,15 @@
 -module(generator).
--export([create/3]).
+-export([column/4, create_list/3]).
 
+column(N, M, C, Src) -> Src ! {col, C, create_list(N, M, C)}.
 
-% il primo itera N^M volte da 1 a M
-% il secondo ripete Index M volte e poi incrementa Index
-% l'ennesimo ripete Index M Col volte e poi incrementa index
+create_list(N, M, C) -> append_seq(trunc(math:pow(M, N-C)), 1, M, C).
 
-list_length(Ls) -> lists:foldl(fun(_, Acc) -> Acc + 1 end, 0, Ls).
+append_seq(N, N, M, C) -> append_rep(M, 1, M, C);
+append_seq(N, I, M, C) -> lists:append(append_rep(M, 1, M, C), append_seq(N, I+1, M, C)).
 
-create_same_num_list(Val, Len, Len) -> [Val];
-create_same_num_list(Val, Len, Index) -> lists:append([Val], create_same_num_list(Val, Len, Index+1)).
-create_same_num_list(Val, Len) -> create_same_num_list(Val, Len, 1).
+append_rep(N, N, M, C) -> append_num(trunc(math:pow(M, C-1)), 1, N);
+append_rep(N, I, M, C) -> lists:append(append_num(trunc(math:pow(M, C-1)), 1, I), append_rep(N, I+1, M, C)).
 
-create_list(Max, Col, M, Index, Ls) ->
-    case list_length(Ls) + 1 > Max of
-        true -> lists:reverse(Ls);
-        false -> 
-            case Index == M of
-                true -> create_list(Max, Col, M, 1, lists:append(create_same_num_list(Index, floor(math:pow(M, Col-1))), Ls));
-                false -> create_list(Max, Col, M, Index+1, lists:append(create_same_num_list(Index, floor(math:pow(M, Col-1))), Ls))
-            end
-    end.
-
-create_list(N, M, Col) -> create_list(floor(math:pow(M,N)), Col, M, 1, []).
-
-calc_list(N, M, Col) ->
-    Ls = create_list(N, M, Col),
-    master ! {list, {Col, Ls}}.
-
-create(N, M, Col) ->
-    spawn(fun() -> calc_list(N, M, Col) end).
+append_num(Max, Max, N) -> [N];
+append_num(Max, I, N) -> lists:append([N], append_num(Max, I+1, N)).
